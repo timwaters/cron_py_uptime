@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-print("Hello World!")
 import requests
 import yaml
 
