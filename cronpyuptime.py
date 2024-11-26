@@ -31,7 +31,7 @@ def send_message(site, status, msg):
     telegram_token = config["telegram_token"]
     telegram_chat = config["telegram_chat"]
     message = "messaage", site, status, msg
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage?chat_id={telegram_user}&text={message}"
+    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage?chat_id={telegram_chat}&text={message}"
     try:
         requests.get(url)
     except requests.exceptions.RequestException as e:
