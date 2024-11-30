@@ -1,49 +1,81 @@
 #!/usr/bin/python3
 import requests
 import yaml
+from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import sys
 
-with open("config.yml", 'r') as stream:
-    config = yaml.safe_load(stream)
-
-headers = {'user-agent': 'tims-cron-py-uptime-bot/1'}
-
-def check_head(site):
-    url = site["url"]
+def send_message(config: dict, site: dict, status: int, msg: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = (
+        f"🚨 Alert at {timestamp}\n"
+        f"Site: {site['name']}\n"
+        f"URL: {site['url']}\n"
+        f"Status: {status}\n"
+        f"Message: {msg}"
+    )
+    
+    url = f"https://api.telegram.org/bot{config['telegram_token']}/sendMessage"
+    params = {
+        "chat_id": config['telegram_chat'],
+        "text": message
+    }
+    
     try:
-        resp = requests.head(url, timeout=10, headers=headers)
-        if (resp.status_code != 200):
-            send_message(site, resp.status_code, "")
+        with requests.Session() as session:
+            response = session.post(url, params=params, timeout=10)
+            response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        send_message(site, 500,  f"RequestException: {e}")
+        print(f"Failed to send Telegram message: {e}")
 
-
-def check_text(site):
-    url = site["url"]
-    string = site["string"]
-    resp = requests.get(url, timeout=10, headers=headers)
-    if (resp.status_code != 200):
-        send_message(site, resp.status_code, "")
-    elif (string not in resp.text):
-        send_message(site, resp.status_code, string + " Text not found")
-
-def send_message(site, status, msg):
-    telegram_token = config["telegram_token"]
-    telegram_chat = config["telegram_chat"]
-    message = "messaage", site, status, msg
-    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage?chat_id={telegram_chat}&text={message}"
+def check_head(session: requests.Session, site: dict, config: dict) -> None:
     try:
-        requests.get(url)
+        resp = session.head(site['url'], timeout=10)
+        if resp.status_code != 200:
+            send_message(config, site, resp.status_code, "Unexpected status code")
     except requests.exceptions.RequestException as e:
-        print("Error sending telegran chat ", f"RequestException: {e}")
+        send_message(config, site, 500, f"Request failed: {str(e)}")
 
+def check_text(session: requests.Session, site: dict, config: dict) -> None:
+    try:
+        resp = session.get(site['url'], timeout=10)
+        if resp.status_code != 200:
+            send_message(config, site, resp.status_code, "Unexpected status code")
+        elif 'string' in site and site['string'] and site['string'] not in resp.text:
+            send_message(config, site, resp.status_code, f"Text '{site['string']}' not found")
+    except requests.exceptions.RequestException as e:
+        send_message(config, site, 500, f"Request failed: {str(e)}")
 
-# go over the sites
-sites = config["sites"]
+def main():
+    # Load config
+    try:
+        with open("config.yml", 'r') as stream:
+            config = yaml.safe_load(stream)
+    except (yaml.YAMLError, FileNotFoundError) as e:
+        print(f"Error loading configuration: {e}")
+        sys.exit(1)
 
-for site in sites:
-    if site["monitor"] == "head":
-        check_head(site)
-    elif site["monitor"] == "text":
-        check_text(site)
+    # Create session with retry strategy
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.headers.update({'user-agent': 'tims-cron-py-uptime-bot/1.1'})
 
-#finished. 
+    # Check sites
+    for site in config['sites']:
+        if site['monitor'] == "head":
+            check_head(session, site, config)
+        elif site['monitor'] == "text":
+            check_text(session, site, config)
+        else:
+            print(f"Unknown monitor type '{site['monitor']}' for site {site['name']}")
+
+if __name__ == "__main__":
+    main()
