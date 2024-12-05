@@ -1,10 +1,10 @@
 telegram_token: abc
 telegram_chat: abcs
 sites:
-  - name: example
+  - name: unique name 
     url: https://example.com
     monitor: head
-  - name: example contains
+  - name: another unique name example contains
     url: https://example.com
     string: example
     monitor: text
